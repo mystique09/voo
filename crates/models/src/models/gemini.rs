@@ -28,7 +28,7 @@ impl GeminiModel {
 
 #[async_trait]
 impl AgentClient for GeminiModel {
-    async fn ask(&self, prompt: &str) -> Result<String, AgentError> {
+    async fn ask(&self, prompt: &str) -> Result<Vec<String>, AgentError> {
         let api_key = &self.api_key;
         let url = format!("{}{}:generateContent?key={}", API_URL, MODEL, api_key);
 
@@ -53,18 +53,19 @@ impl AgentClient for GeminiModel {
             .await
             .map_err(|e| AgentError::AgentError(Some(e.to_string())))?;
 
-        let text = response_json
+        let texts = response_json
             .candidates
-            .get(0)
-            .unwrap()
-            .content
-            .parts
-            .get(0)
-            .unwrap()
-            .text
-            .clone();
+            .iter()
+            .map(|candidate| candidate.content.clone().parts)
+            .map(|parts| parts.iter().map(|part| part.text.clone()).collect())
+            .collect::<Vec<String>>();
 
-        Ok(text)
+        for response in texts.iter() {
+            let content = Content::new(vec![Part::new(&response)], "model");
+            self.conversation.lock().await.push(content);
+        }
+
+        Ok(texts)
     }
 
     async fn perform_tool(&self, prompt: &str) -> Result<String, AgentError> {

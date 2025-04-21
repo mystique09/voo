@@ -28,11 +28,13 @@ async fn main() -> anyhow::Result<()> {
         let response = agent.client().ask(&input).await;
 
         match response {
-            Ok(response) => {
-                println!(
-                    "\x1b[34m{}:{}> \x1b[0m{}",
-                    crate_name, crate_version, response
-                )
+            Ok(responses) => {
+                for response in responses {
+                    println!(
+                        "\x1b[34m{}:{}> \x1b[0m{}",
+                        crate_name, crate_version, response
+                    );
+                }
             }
             Err(e) => println!("Error: {}", e),
         }

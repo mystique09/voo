@@ -8,7 +8,7 @@ use async_trait::async_trait;
 
 #[async_trait]
 pub trait AgentClient: Debug + Send + Sync + 'static {
-    async fn ask(&self, prompt: &str) -> Result<String, AgentError>;
+    async fn ask(&self, prompt: &str) -> Result<Vec<String>, AgentError>;
     async fn perform_tool(&self, prompt: &str) -> Result<String, AgentError>;
 }
 
@@ -98,8 +98,8 @@ mod tests {
 
     #[async_trait]
     impl AgentClient for MockAgentClient {
-        async fn ask(&self, prompt: &str) -> Result<String, AgentError> {
-            Ok(prompt.to_string())
+        async fn ask(&self, prompt: &str) -> Result<Vec<String>, AgentError> {
+            Ok(vec![prompt.to_string()])
         }
 
         async fn perform_tool(&self, prompt: &str) -> Result<String, AgentError> {
