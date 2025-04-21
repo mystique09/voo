@@ -1,0 +1,34 @@
+[package]
+name = "voo"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "voo"
+path = "src/main.rs"
+
+[workspace]
+members = ["crates/*"]
+
+[workspace.dependencies]
+reqwest = "0.12.15"
+anyhow = "1.0.98"
+async-trait = "0.1.88"
+dotenvy = "0.15.7"
+serde_json = { version = "1.0.140" }
+
+[workspace.dependencies.serde]
+version = "1.0.219"
+features = ["derive"]
+
+[workspace.dependencies.tokio]
+version = "1.44.2"
+features = ["full"]
+
+[dependencies]
+domain = { path = "crates/domain" }
+models = { path = "crates/models" }
+
+tokio.workspace = true
+anyhow.workspace = true
+dotenvy.workspace = true
