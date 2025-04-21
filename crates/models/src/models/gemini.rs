@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domain::models::agent::{AgentClient, AgentError};
-use reqwest::Body;
 
 static API_URL: &'static str = "https://generativelanguage.googleapis.com/v1beta/models/";
 static MODEL: &'static str = "gemini-2.0-flash";
@@ -30,23 +29,13 @@ impl AgentClient for GeminiModel {
         let api_key = &self.api_key;
         let url = format!("{}{}:generateContent?key={}", API_URL, MODEL, api_key);
 
-        let content = r#"{
-    "contents": [
-      {
-        "parts": [
-          {
-            "text": "{prompt}"
-          }
-        ]
-      }
-    ]
-  }"#
-        .replace("{prompt}", prompt);
+        let content = Content::new(vec![Part::new(prompt)], "user");
+        let prompt = Prompt::new(vec![content]);
 
         let response = self
             .reqwest
             .post(url)
-            .body(Body::from(content))
+            .json(&prompt)
             .send()
             .await
             .map_err(|e| AgentError::AgentError(Some(e.to_string())))?;
@@ -77,6 +66,17 @@ impl AgentClient for GeminiModel {
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Prompt {
+    contents: Vec<Content>,
+}
+
+impl Prompt {
+    pub fn new(contents: Vec<Content>) -> Self {
+        Self { contents }
+    }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiResponse {
     pub candidates: Vec<Candidate>,
@@ -99,10 +99,27 @@ pub struct Content {
     pub role: String,
 }
 
+impl Content {
+    pub fn new(parts: Vec<Part>, role: &str) -> Self {
+        Self {
+            parts,
+            role: role.to_string(),
+        }
+    }
+}
+
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Part {
     pub text: String,
+}
+
+impl Part {
+    pub fn new(text: &str) -> Self {
+        Self {
+            text: text.to_string(),
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
