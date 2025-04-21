@@ -12,7 +12,7 @@ async fn main() -> anyhow::Result<()> {
     let crate_name = env!("CARGO_PKG_NAME").to_uppercase();
     let crate_version = env!("CARGO_PKG_VERSION");
 
-    println!("Welcome to {} {}!\n", crate_name, crate_version);
+    println!("Chat with VOO (use 'ctrl-c' to quit)\n");
 
     loop {
         let input = agent
@@ -20,15 +20,15 @@ async fn main() -> anyhow::Result<()> {
             .read()
             .map_err(|e| anyhow::anyhow!("Error reading input: {}", e))?;
 
+        if input.starts_with("exit") {
+            println!("Bye!");
+            break;
+        }
+
         let response = agent.client().ask(&input).await;
 
         match response {
             Ok(response) => {
-                if response.starts_with("exit") {
-                    println!("Bye!");
-                    break;
-                }
-
                 println!(
                     "\x1b[34m{}:{}> \x1b[0m{}",
                     crate_name, crate_version, response
