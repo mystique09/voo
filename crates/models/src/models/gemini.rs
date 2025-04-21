@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use async_trait::async_trait;
 use domain::models::agent::{AgentClient, AgentError};
@@ -12,12 +13,14 @@ static MODEL: &'static str = "gemini-2.0-flash";
 pub struct GeminiModel {
     api_key: String,
     reqwest: Arc<reqwest::Client>,
+    conversation: Arc<Mutex<Vec<Content>>>,
 }
 
 impl GeminiModel {
     pub fn new(api_key: String) -> Self {
         Self {
             api_key,
+            conversation: Arc::new(Mutex::new(vec![])),
             reqwest: Arc::new(reqwest::Client::new()),
         }
     }
@@ -30,7 +33,12 @@ impl AgentClient for GeminiModel {
         let url = format!("{}{}:generateContent?key={}", API_URL, MODEL, api_key);
 
         let content = Content::new(vec![Part::new(prompt)], "user");
-        let prompt = Prompt::new(vec![content]);
+        {
+            self.conversation.lock().await.push(content.clone());
+        }
+
+        let history = self.conversation.lock().await.clone();
+        let prompt = Prompt::new(history);
 
         let response = self
             .reqwest
