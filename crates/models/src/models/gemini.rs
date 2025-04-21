@@ -48,12 +48,11 @@ impl AgentClient for GeminiModel {
             .await
             .map_err(|e| AgentError::AgentError(Some(e.to_string())))?;
 
-        let response_text = response
-            .text()
+        let response_json = response
+            .json::<GeminiResponse>()
             .await
             .map_err(|e| AgentError::AgentError(Some(e.to_string())))?;
-        let response_json: GeminiResponse = serde_json::from_str(&response_text)
-            .map_err(|e| AgentError::AgentError(Some(e.to_string())))?;
+
         let text = response_json
             .candidates
             .get(0)
