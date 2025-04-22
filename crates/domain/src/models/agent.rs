@@ -6,6 +6,8 @@ use std::{
 
 use async_trait::async_trait;
 
+use super::tools::Tool;
+
 #[async_trait]
 pub trait AgentClient: Debug + Send + Sync + 'static {
     async fn ask(&self, prompt: &str) -> Result<Vec<String>, AgentError>;
@@ -20,13 +22,15 @@ pub trait InputReader: Debug + Send + Sync + 'static {
 pub struct Agent {
     reader: Arc<dyn InputReader>,
     client: Arc<dyn AgentClient>,
+    tools: Vec<Arc<dyn Tool>>,
 }
 
 impl Agent {
-    pub fn new(client: impl AgentClient + 'static) -> Self {
+    pub fn new(client: impl AgentClient + 'static, tools: Vec<Arc<dyn Tool>>) -> Self {
         Self {
             client: Arc::new(client),
             reader: Arc::new(TerminalInputReader),
+            tools,
         }
     }
 }
@@ -60,6 +64,10 @@ impl Agent {
     pub fn reader(&self) -> &Arc<dyn InputReader> {
         &self.reader
     }
+
+    pub fn tools(&self) -> &Vec<Arc<dyn Tool>> {
+        &self.tools
+    }
 }
 
 #[derive(Debug)]
@@ -70,7 +78,7 @@ impl InputReader for TerminalInputReader {
         let mut input = String::new();
 
         std::io::stdout()
-            .write_all("\x1b[32mYOU> \x1b[0m".as_bytes())
+            .write_all("\x1b[32mYOU: \x1b[0m".as_bytes())
             .map_err(|e| AgentError::UserInputError(Some(e.to_string())))?;
 
         std::io::stdout().flush().map_err(|e| {
@@ -119,6 +127,7 @@ mod tests {
         let agent = Agent {
             client: Arc::new(MockAgentClient {}),
             reader: Arc::new(reader),
+            tools: vec![],
         };
 
         let input = "test input";
