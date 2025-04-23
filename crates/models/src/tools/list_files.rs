@@ -90,13 +90,14 @@ impl Tool for ListFileTool {
                 ))
             })?;
 
-            if file_type.is_dir() {
-                continue;
-            }
-
-            let full_path = entry.path();
-            let full_path_str = full_path.to_string_lossy().to_string();
-            files.push(full_path_str);
+            let full_path = {
+                if file_type.is_dir() {
+                    format!("{}/", entry.path().to_string_lossy().to_string())
+                } else {
+                    entry.path().to_string_lossy().to_string()
+                }
+            };
+            files.push(full_path);
         }
 
         let files_str = files.join(", ");

@@ -70,8 +70,7 @@ impl AgentClient for GeminiModel {
 
         let content = Content::new(vec![Part::new(prompt)], "user");
         {
-            let mut conversation = self.conversation.lock().await;
-            conversation.contents.push(content);
+            self.conversation.lock().await.contents.push(content);
         }
 
         let history = self.conversation.lock().await.clone();
@@ -100,8 +99,7 @@ impl AgentClient for GeminiModel {
 
         for response in texts.iter() {
             let content = Content::new(vec![Part::new(&response)], "model");
-            let mut history = self.conversation.lock().await.clone();
-            history.contents.push(content);
+            self.conversation.lock().await.contents.push(content);
         }
 
         Ok(texts)
