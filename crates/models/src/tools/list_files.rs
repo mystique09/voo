@@ -72,8 +72,8 @@ impl Tool for ListFileTool {
         }
 
         let json = json.unwrap();
-        let input_schema = serde_json::from_str::<ListFileInput>(&json)
-            .map_err(|e| ToolError::ToolError(format!("Invalid input: {}", e)))?;
+        let input_schema = serde_json::from_str::<ListFileInput>(&json).unwrap_or_default();
+        // .map_err(|e| ToolError::ToolError(format!("Invalid input: {}", e)))?;
 
         let path = input_schema.input.path;
         let entries = std::fs::read_dir(&path)
