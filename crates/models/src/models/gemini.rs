@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -16,7 +17,7 @@ static MODEL: &'static str = "gemini-2.0-flash";
 pub struct GeminiModel {
     api_key: String,
     reqwest: Arc<reqwest::Client>,
-    conversation: Arc<Mutex<Vec<Content>>>,
+    conversation: Arc<Mutex<ConversationHistory>>,
 }
 
 impl GeminiModel {
@@ -51,9 +52,11 @@ impl GeminiModel {
             "model",
         );
 
+        let conversation_history = ConversationHistory::new(vec![initial_prompt], vec![]);
+
         Self {
             api_key,
-            conversation: Arc::new(Mutex::new(vec![initial_prompt])),
+            conversation: Arc::new(Mutex::new(conversation_history)),
             reqwest: Arc::new(reqwest::Client::new()),
         }
     }
@@ -67,11 +70,13 @@ impl AgentClient for GeminiModel {
 
         let content = Content::new(vec![Part::new(prompt)], "user");
         {
-            self.conversation.lock().await.push(content.clone());
+            let mut conversation = self.conversation.lock().await;
+            conversation.contents.push(content);
         }
 
         let history = self.conversation.lock().await.clone();
-        let prompt = Prompt::new(history);
+        let contents = history.contents;
+        let prompt = Prompt::new(contents);
 
         let response = self
             .reqwest
@@ -95,7 +100,8 @@ impl AgentClient for GeminiModel {
 
         for response in texts.iter() {
             let content = Content::new(vec![Part::new(&response)], "model");
-            self.conversation.lock().await.push(content);
+            let mut history = self.conversation.lock().await.clone();
+            history.contents.push(content);
         }
 
         Ok(texts)
@@ -110,10 +116,10 @@ impl AgentClient for GeminiModel {
             "#,
             tool.as_ref()
         );
+        let gemini_tool = GeminiTool::new(tool, tool_info);
 
-        let content = Content::new(vec![Part::new(&tool_info)], "model");
         {
-            self.conversation.lock().await.push(content.clone());
+            self.conversation.lock().await.tools.push(gemini_tool);
         }
 
         Ok(())
@@ -122,7 +128,11 @@ impl AgentClient for GeminiModel {
     async fn add_system_prompt(&self, prompt: &str) -> Result<(), AgentError> {
         let content = Content::new(vec![Part::new(prompt)], "model");
         {
-            self.conversation.lock().await.push(content.clone());
+            self.conversation
+                .lock()
+                .await
+                .contents
+                .push(content.clone());
         }
 
         Ok(())
@@ -154,6 +164,19 @@ pub struct Candidate {
     pub content: Content,
     pub finish_reason: String,
     pub avg_logprobs: f64,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationHistory {
+    pub contents: Vec<Content>,
+    pub tools: Vec<GeminiTool>,
+}
+
+impl ConversationHistory {
+    pub fn new(contents: Vec<Content>, tools: Vec<GeminiTool>) -> Self {
+        Self { contents, tools }
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -208,4 +231,59 @@ pub struct PromptTokensDetail {
 pub struct CandidatesTokensDetail {
     pub modality: String,
     pub token_count: i64,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeminiTool {
+    pub function_declarations: Vec<FunctionDeclaration>,
+}
+
+impl GeminiTool {
+    pub fn new(tool: Arc<dyn Tool>, info: String) -> Self {
+        let function_declarations = vec![FunctionDeclaration {
+            name: tool.name().to_string(),
+            description: tool.description().to_string(),
+            parameters: Parameters {
+                type_field: "object".to_string(),
+                properties: json!([info]),
+                required: vec![],
+            },
+        }];
+
+        Self {
+            function_declarations,
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FunctionDeclaration {
+    pub name: String,
+    pub description: String,
+    pub parameters: Parameters,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Parameters {
+    #[serde(rename = "type")]
+    pub type_field: String,
+    pub properties: Value,
+    pub required: Vec<String>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Properties {
+    pub location: Location,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Location {
+    #[serde(rename = "type")]
+    pub type_field: String,
+    pub description: String,
 }
