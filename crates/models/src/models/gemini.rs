@@ -36,6 +36,9 @@ impl GeminiModel {
 
         **VERY IMPORTANT**
         > Don't say anything else, just the JSON because the agent will use this to parse the response.
+
+        **Current Tools Available:**
+        read_file
         "#,
             )],
             "model",

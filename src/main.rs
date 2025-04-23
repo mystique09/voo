@@ -29,12 +29,27 @@ async fn main() -> anyhow::Result<()> {
     let crate_version = env!("CARGO_PKG_VERSION");
 
     println!("Chat with VOO (use 'ctrl-c' to quit)\n");
+    let mut is_retry = false;
+    let max_retry = 3;
+    let mut retry_attempt = 0;
 
-    loop {
-        let input = agent
-            .reader()
-            .read()
-            .map_err(|e| anyhow::anyhow!("Error reading input: {}", e))?;
+    'main: loop {
+        if retry_attempt >= max_retry {
+            is_retry = false;
+            retry_attempt = 0;
+        }
+
+        let input = if !is_retry {
+            let input = agent
+                .reader()
+                .read()
+                .map_err(|e| anyhow::anyhow!("Error reading input: {}", e))?;
+
+            input
+        } else {
+            retry_attempt += 1;
+            "Retry.".to_string()
+        };
 
         if input.starts_with("exit") {
             println!("Bye!");
@@ -74,21 +89,24 @@ async fn main() -> anyhow::Result<()> {
                     if let (Some(tool), Some(input)) = (is_tool_use, input) {
                         let tool_name = tool.name();
 
-                        println!(
-                            "\x1b[33m{}@{}: \x1b[0mUsing  tool: {}(..)\n",
-                            crate_name, crate_version, tool_name,
-                        );
-
-                        let tool_use_input = format!("{}({})", tool.name(), input);
-
-                        println!(
-                            "\x1b[33m{}@{}: \x1b[0m{}",
-                            crate_name, crate_version, tool_use_input
-                        );
-
                         let response = loop {
+                            println!(
+                                "\x1b[33m{}@{}: \x1b[0mUsing  tool: {}(..)\n",
+                                crate_name, crate_version, tool_name,
+                            );
+
+                            let tool_use_input = format!("{}({})", tool.name(), input);
+
+                            println!(
+                                "\x1b[33m{}@{}: \x1b[0m{}",
+                                crate_name, crate_version, tool_use_input
+                            );
+
                             match tool.exec(input.clone()).await {
-                                Ok(response) => break response,
+                                Ok(response) => {
+                                    is_retry = false;
+                                    break response;
+                                }
                                 Err(e) => {
                                     let error = format!(
                                         r#"
@@ -102,7 +120,22 @@ async fn main() -> anyhow::Result<()> {
                                         crate_name, crate_version, tool_name, e
                                     );
                                     sleep(Duration::from_secs(1)).await;
-                                    continue;
+                                    println!(
+                                        "\x1b[33m{}@{}: \x1b[0mRetrying {}(..)...\n",
+                                        crate_name, crate_version, tool_name
+                                    );
+
+                                    is_retry = true;
+
+                                    if retry_attempt >= max_retry {
+                                        println!(
+                                            "\x1b[33m{}@{}: \x1b[0mMax retry attempts reached. Exiting...\n",
+                                            crate_name, crate_version,
+                                        );
+                                        continue 'main;
+                                    }
+
+                                    continue 'main;
                                 }
                             }
                         };
