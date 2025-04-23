@@ -1,10 +1,11 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use domain::models::{
     agent::Agent,
     tools::{Tool, ToolNameInput},
 };
 use models::{models::gemini::GeminiModel, tools::read_file::ReadFileTool};
+use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -52,20 +53,6 @@ async fn main() -> anyhow::Result<()> {
                         let json_str = response.replace("```json", "").replace("```", "");
                         let tool_name_input = serde_json::from_str::<ToolNameInput>(&json_str);
 
-                        if response.starts_with("```json") {
-                            if let Err(e) = tool_name_input {
-                                println!(
-                                    "\x1b[31m{}@{}: \x1b[0m{}",
-                                    crate_name, crate_version, response
-                                );
-
-                                let error_message =
-                                    format!("Error processing response: {}, prompt: {}", e, input);
-                                _ = agent.client().add_system_prompt(&error_message).await;
-                                continue;
-                            }
-                        }
-
                         if let Ok(tool_input) = tool_name_input {
                             let tools = agent.tools().try_lock().unwrap();
                             let get_tool = tools.get(&tool_input.name);
@@ -86,11 +73,10 @@ async fn main() -> anyhow::Result<()> {
 
                     if let (Some(tool), Some(input)) = (is_tool_use, input) {
                         let tool_name = tool.name();
-                        let tool_description = tool.description();
 
                         println!(
-                            "Tool to use: {}\nDescription: {}\n",
-                            tool_name, tool_description
+                            "\x1b[33m{}@{}: \x1b[0mUsing  tool: {}(..)\n",
+                            crate_name, crate_version, tool_name,
                         );
 
                         let tool_use_input = format!("{}({})", tool.name(), input);
@@ -100,29 +86,40 @@ async fn main() -> anyhow::Result<()> {
                             crate_name, crate_version, tool_use_input
                         );
 
-                        let response = tool.exec(input).await;
+                        let response = loop {
+                            match tool.exec(input.clone()).await {
+                                Ok(response) => break response,
+                                Err(e) => {
+                                    let error = format!(
+                                        r#"
+                                    Error executing tool {}; error={}
+                                    "#,
+                                        tool_name, e
+                                    );
+                                    _ = agent.client().add_system_prompt(&error);
+                                    println!(
+                                        "\x1b[33m{}@{}: \x1b[0mError executing tool {}; error={}\n",
+                                        crate_name, crate_version, tool_name, e
+                                    );
+                                    sleep(Duration::from_secs(1)).await;
+                                    continue;
+                                }
+                            }
+                        };
 
-                        if let Err(e) = &response {
+                        let tool_use_response = agent.client().ask(&response).await;
+
+                        if let Err(e) = &tool_use_response {
                             eprintln!("Error executing tool: {:?}", e);
                         }
 
-                        if let Ok(response) = response {
-                            let tool_use_response = agent.client().ask(&response).await;
-
-                            if let Err(e) = &tool_use_response {
-                                eprintln!("Error executing tool: {:?}", e);
+                        if let Ok(tool_use_responses) = tool_use_response {
+                            for tool_use_response in tool_use_responses {
+                                println!(
+                                    "\x1b[32m{}@{}: \x1b[0m{}",
+                                    crate_name, crate_version, tool_use_response
+                                );
                             }
-
-                            if let Ok(tool_use_responses) = tool_use_response {
-                                for tool_use_response in tool_use_responses {
-                                    println!(
-                                        "\x1b[32m{}@{}: \x1b[0m{}",
-                                        crate_name, crate_version, tool_use_response
-                                    );
-                                }
-                            }
-                        } else {
-                            println!("Error executing tool");
                         }
                     }
                 }

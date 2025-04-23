@@ -9,6 +9,15 @@ pub enum ToolError {
     ToolError(String),
 }
 
+impl Display for ToolError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ToolError::FileNotFound(path) => write!(f, "File not found: {}", path),
+            ToolError::ToolError(msg) => write!(f, "Tool error: {}", msg),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ToolNameInput {
     pub name: String,

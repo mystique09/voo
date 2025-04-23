@@ -63,7 +63,8 @@ impl Tool for ReadFileTool {
         }
 
         let json = json.unwrap();
-        let input_schema = serde_json::from_str::<ReadFileInput>(&json).unwrap();
+        let input_schema = serde_json::from_str::<ReadFileInput>(&json)
+            .map_err(|e| ToolError::ToolError(format!("Invalid input: {}", e)))?;
         let path = input_schema.input.file_path;
         let buf = PathBuf::from(path);
         let content =
