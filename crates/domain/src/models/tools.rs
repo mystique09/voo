@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug)]
 pub enum ToolError {
     FileNotFound(String),
+    ListFile(String),
     ToolError(String),
 }
 
@@ -13,6 +14,7 @@ impl Display for ToolError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ToolError::FileNotFound(path) => write!(f, "File not found: {}", path),
+            ToolError::ListFile(path) => write!(f, "List file error: {}", path),
             ToolError::ToolError(msg) => write!(f, "Tool error: {}", msg),
         }
     }

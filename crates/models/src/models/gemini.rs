@@ -29,16 +29,23 @@ impl GeminiModel {
         When you are asked a normal question, answer normally, but if you need to use a tool, use the following format:
         {
             "name": "tool_name",           
-            "input": <input schema>
+            "input": <input schema> include the inner object, for example:
+            {
+                "path": "path/to/file.txt"
+            }
         }
 
         The input schema is the input schema for the tool you are using, basically in JSON format.
 
         **VERY IMPORTANT**
         > Don't say anything else, just the JSON because the agent will use this to parse the response.
+        > When showing the output of a tool, show the output and then show the user what they want in a list format, for example:
+        > - Item 1
+        > - Item 2
+        > - Item 3
 
         **Current Tools Available:**
-        read_file
+        read_file, list_files
         "#,
             )],
             "model",

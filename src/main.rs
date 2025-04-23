@@ -4,7 +4,10 @@ use domain::models::{
     agent::Agent,
     tools::{Tool, ToolNameInput},
 };
-use models::{models::gemini::GeminiModel, tools::read_file::ReadFileTool};
+use models::{
+    models::gemini::GeminiModel,
+    tools::{list_files::ListFileTool, read_file::ReadFileTool},
+};
 use tokio::time::sleep;
 
 #[tokio::main]
@@ -18,11 +21,20 @@ async fn main() -> anyhow::Result<()> {
         "read_file",
         "Read the contents of a given relative file path. Use this when you want to see what's inside a file. Do not use this with directory names.",
     );
+    let list_file_tool = ListFileTool::new(
+        "list_files",
+        "List the files of a given relative file path. Use this when you want to see what's inside a directory.",
+    );
 
     let read_file_tool: Arc<dyn Tool> = Arc::new(read_file_tool);
+    let list_file_tool: Arc<dyn Tool> = Arc::new(list_file_tool);
+
     let agent = Agent::new(gemini);
     agent
         .add_tool(read_file_tool)
+        .map_err(|e| anyhow::anyhow!("Error adding tool: {}", e))?;
+    agent
+        .add_tool(list_file_tool)
         .map_err(|e| anyhow::anyhow!("Error adding tool: {}", e))?;
 
     let crate_name = env!("CARGO_PKG_NAME").to_uppercase();
@@ -91,16 +103,12 @@ async fn main() -> anyhow::Result<()> {
 
                         let response = loop {
                             println!(
-                                "\x1b[33m{}@{}: \x1b[0mUsing  tool: {}(..)\n",
+                                "\x1b[33m{}@{}: \x1b[0mExecuting tool: {}(..)\n",
                                 crate_name, crate_version, tool_name,
                             );
 
                             let tool_use_input = format!("{}({})", tool.name(), input);
-
-                            println!(
-                                "\x1b[33m{}@{}: \x1b[0m{}",
-                                crate_name, crate_version, tool_use_input
-                            );
+                            println!("\x1b[33mtool: \x1b[0m{}", tool_use_input);
 
                             match tool.exec(input.clone()).await {
                                 Ok(response) => {
