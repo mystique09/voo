@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use domain::models::tools::{Tool, ToolError};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ReadFileTool {
     name: String,
     description: String,
@@ -18,7 +18,7 @@ pub struct ReadFileInput {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Input {
-    path: String,
+    file_path: String,
 }
 
 impl Display for ReadFileTool {
@@ -43,7 +43,7 @@ impl ReadFileTool {
             description: description.to_string(),
             input_schema: ReadFileInput {
                 input: Input {
-                    path: "".to_string(),
+                    file_path: "".to_string(),
                 },
             },
         }
@@ -64,12 +64,19 @@ impl Tool for ReadFileTool {
 
         let json = json.unwrap();
         let input_schema = serde_json::from_str::<ReadFileInput>(&json).unwrap();
-        let path = input_schema.input.path;
+        let path = input_schema.input.file_path;
         let buf = PathBuf::from(path);
         let content =
             std::fs::read_to_string(buf).map_err(|e| ToolError::FileNotFound(e.to_string()))?;
 
         Ok(content)
+    }
+
+    fn parse_input(&self, input: String) -> Result<(), ToolError> {
+        let _ = serde_json::from_str::<ReadFileInput>(&input)
+            .map_err(|e| ToolError::ToolError(e.to_string()))?;
+
+        Ok(())
     }
 
     fn name(&self) -> &str {

@@ -1,17 +1,20 @@
 use std::{
+    collections::HashMap,
     fmt::{Debug, Display},
     io::Write,
     sync::Arc,
 };
 
 use async_trait::async_trait;
+use tokio::sync::Mutex;
 
 use super::tools::Tool;
 
 #[async_trait]
 pub trait AgentClient: Debug + Send + Sync + 'static {
     async fn ask(&self, prompt: &str) -> Result<Vec<String>, AgentError>;
-    async fn perform_tool(&self, prompt: &str) -> Result<String, AgentError>;
+    async fn add_tool(&self, tool: Arc<dyn Tool>) -> Result<(), AgentError>;
+    async fn add_system_prompt(&self, prompt: &str) -> Result<(), AgentError>;
 }
 
 pub trait InputReader: Debug + Send + Sync + 'static {
@@ -22,16 +25,25 @@ pub trait InputReader: Debug + Send + Sync + 'static {
 pub struct Agent {
     reader: Arc<dyn InputReader>,
     client: Arc<dyn AgentClient>,
-    tools: Vec<Arc<dyn Tool>>,
+    tools: Arc<Mutex<HashMap<String, Arc<dyn Tool>>>>,
 }
 
 impl Agent {
-    pub fn new(client: impl AgentClient + 'static, tools: Vec<Arc<dyn Tool>>) -> Self {
+    pub fn new(client: impl AgentClient + 'static) -> Self {
         Self {
             client: Arc::new(client),
             reader: Arc::new(TerminalInputReader),
-            tools,
+            tools: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    pub fn add_tool(&self, tool: Arc<dyn Tool>) -> Result<(), AgentError> {
+        self.tools
+            .try_lock()
+            .unwrap()
+            .insert(tool.name().to_string(), tool);
+
+        Ok(())
     }
 }
 
@@ -65,7 +77,7 @@ impl Agent {
         &self.reader
     }
 
-    pub fn tools(&self) -> &Vec<Arc<dyn Tool>> {
+    pub fn tools(&self) -> &Arc<Mutex<HashMap<String, Arc<dyn Tool>>>> {
         &self.tools
     }
 }
@@ -110,8 +122,12 @@ mod tests {
             Ok(vec![prompt.to_string()])
         }
 
-        async fn perform_tool(&self, prompt: &str) -> Result<String, AgentError> {
-            Ok(prompt.to_string())
+        async fn add_tool(&self, _tool: Arc<dyn Tool>) -> Result<(), AgentError> {
+            Ok(())
+        }
+
+        async fn add_system_prompt(&self, _prompt: &str) -> Result<(), AgentError> {
+            Ok(())
         }
     }
 
@@ -127,7 +143,7 @@ mod tests {
         let agent = Agent {
             client: Arc::new(MockAgentClient {}),
             reader: Arc::new(reader),
-            tools: vec![],
+            tools: Arc::new(Mutex::new(HashMap::new())),
         };
 
         let input = "test input";

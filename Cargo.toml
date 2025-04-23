@@ -35,3 +35,5 @@ models = { path = "crates/models" }
 tokio.workspace = true
 anyhow.workspace = true
 dotenvy.workspace = true
+serde.workspace = true
+serde_json.workspace = true

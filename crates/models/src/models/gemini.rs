@@ -3,7 +3,10 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use async_trait::async_trait;
-use domain::models::agent::{AgentClient, AgentError};
+use domain::models::{
+    agent::{AgentClient, AgentError},
+    tools::Tool,
+};
 
 static API_URL: &'static str = "https://generativelanguage.googleapis.com/v1beta/models/";
 static MODEL: &'static str = "gemini-2.0-flash";
@@ -18,9 +21,29 @@ pub struct GeminiModel {
 
 impl GeminiModel {
     pub fn new(api_key: String) -> Self {
+        let initial_prompt = Content::new(
+            vec![Part::new(
+                r#"
+        You are an expert LLM Agent named VOO, with access to a variety of tools.
+        You have access to various tools, and can use them to help you answer questions.
+        When you are asked a normal question, answer normally, but if you need to use a tool, use the following format:
+        {
+            "name": "tool_name",           
+            "input": <input schema>
+        }
+
+        The input schema is the input schema for the tool you are using, basically in JSON format.
+
+        **VERY IMPORTANT**
+        > Don't say anything else, just the JSON because the agent will use this to parse the response.
+        "#,
+            )],
+            "model",
+        );
+
         Self {
             api_key,
-            conversation: Arc::new(Mutex::new(vec![])),
+            conversation: Arc::new(Mutex::new(vec![initial_prompt])),
             reqwest: Arc::new(reqwest::Client::new()),
         }
     }
@@ -68,8 +91,31 @@ impl AgentClient for GeminiModel {
         Ok(texts)
     }
 
-    async fn perform_tool(&self, prompt: &str) -> Result<String, AgentError> {
-        Ok(prompt.to_string())
+    async fn add_tool(&self, tool: Arc<dyn Tool>) -> Result<(), AgentError> {
+        let tool_info = format!(
+            r#"Always follow the input schema!
+            Always include your response using the input schema provided and nothing else.
+            If a user ask about the tool, just respond normally.
+            {}
+            "#,
+            tool.as_ref()
+        );
+
+        let content = Content::new(vec![Part::new(&tool_info)], "model");
+        {
+            self.conversation.lock().await.push(content.clone());
+        }
+
+        Ok(())
+    }
+
+    async fn add_system_prompt(&self, prompt: &str) -> Result<(), AgentError> {
+        let content = Content::new(vec![Part::new(prompt)], "model");
+        {
+            self.conversation.lock().await.push(content.clone());
+        }
+
+        Ok(())
     }
 }
 
