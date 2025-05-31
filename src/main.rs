@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use domain::models::{
-    agent::{Agent, FunctionCall, Part},
+    agent::{Agent, AgentError, FunctionCall, Part},
     tools::Tool,
 };
 use models::{
@@ -135,6 +135,12 @@ async fn main() -> anyhow::Result<()> {
                         print_response(&agent, &response.parts).await;
                     }
                 }
+            }
+            Err(AgentError::ExpiredApiKey) => {
+                error!(
+                    "\x1b[41moxi>\x1b[0m API key expired. Please update the API key in the .env file."
+                );
+                break;
             }
             Err(e) => {
                 error!("\x1b[41moxi>\x1b[0m {}", e);

@@ -58,6 +58,7 @@ impl Agent {
 pub enum AgentError {
     UserInputError(Option<String>),
     AgentError(Option<String>),
+    ExpiredApiKey,
 }
 
 impl Display for AgentError {
@@ -71,6 +72,7 @@ impl Display for AgentError {
                 Some(msg) => write!(f, "AgentError: {}", msg),
                 None => write!(f, "AgentError: "),
             },
+            AgentError::ExpiredApiKey => write!(f, "ExpiredApiKey"),
         }
     }
 }

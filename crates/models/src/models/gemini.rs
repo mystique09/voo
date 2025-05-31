@@ -79,8 +79,19 @@ impl AgentClient for GeminiModel {
         let response_json = serde_json::from_str::<GeminiResponse>(&text)
             .map_err(|e| AgentError::AgentError(Some(e.to_string())))?;
 
+        if let Some(error) = response_json.error {
+            let error_msg = error.message;
+
+            if error_msg.contains("API key expired.") {
+                return Err(AgentError::ExpiredApiKey);
+            }
+
+            return Err(AgentError::AgentError(Some(error_msg)));
+        }
+
         let contents = response_json
             .candidates
+            .unwrap_or_default()
             .iter()
             .map(|candidate| candidate.content.clone())
             .collect::<Vec<Content>>();
@@ -159,9 +170,37 @@ impl Prompt {
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiResponse {
-    pub candidates: Vec<Candidate>,
-    pub usage_metadata: UsageMetadata,
-    pub model_version: String,
+    pub candidates: Option<Vec<Candidate>>,
+    pub usage_metadata: Option<UsageMetadata>,
+    pub model_version: Option<String>,
+    pub error: Option<GeminiError>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeminiError {
+    pub code: i64,
+    pub message: String,
+    pub status: String,
+    pub details: Vec<Detail>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Detail {
+    #[serde(rename = "@type")]
+    pub type_field: String,
+    pub reason: Option<String>,
+    pub domain: Option<String>,
+    pub metadata: Option<Metadata>,
+    pub locale: Option<String>,
+    pub message: Option<String>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Metadata {
+    pub service: String,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
