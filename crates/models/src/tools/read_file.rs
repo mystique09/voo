@@ -1,14 +1,16 @@
 use std::{fmt::Display, path::PathBuf};
 
 use async_trait::async_trait;
-use domain::models::tools::{Tool, ToolError};
+use domain::models::tools::{Tool, ToolDefinition, ToolError};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug)]
 pub struct ReadFileTool {
     name: String,
     description: String,
     input_schema: ReadFileInput,
+    tool_definition: ToolDefinition,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -46,6 +48,23 @@ impl ReadFileTool {
                     path: "".to_string(),
                 },
             },
+            tool_definition: ToolDefinition {
+                name: name.to_string(),
+                description: description.to_string(),
+                parameters: serde_json::from_str(
+                    r#"{
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "The path to read the file from"
+                            }
+                        },
+                        "required": ["path"]
+                    }"#,
+                )
+                .unwrap(),
+            },
         }
     }
 
@@ -56,16 +75,10 @@ impl ReadFileTool {
 
 #[async_trait]
 impl Tool for ReadFileTool {
-    async fn exec(&self, input: String) -> Result<String, ToolError> {
-        let json = input.split("Input: ").last();
-        if json.is_none() {
-            return Err(ToolError::ToolError("Invalid input".to_string()));
-        }
-
-        let json = json.unwrap();
-        let input_schema = serde_json::from_str::<ReadFileInput>(&json)
-            .map_err(|e| ToolError::ToolError(format!("Invalid input: {}", e)))?;
-        let path = input_schema.input.path;
+    async fn exec(&self, input: Value) -> Result<String, ToolError> {
+        let input = serde_json::from_value::<Input>(input)
+            .map_err(|e| ToolError::ToolError(e.to_string()))?;
+        let path = input.path;
         let buf = PathBuf::from(path);
         let content =
             std::fs::read_to_string(buf).map_err(|e| ToolError::FileNotFound(e.to_string()))?;
@@ -86,5 +99,9 @@ impl Tool for ReadFileTool {
 
     fn description(&self) -> &str {
         &self.description
+    }
+
+    fn tool_definition(&self) -> &ToolDefinition {
+        &self.tool_definition
     }
 }

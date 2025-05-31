@@ -1,16 +1,15 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use async_trait::async_trait;
 use domain::models::{
-    agent::{AgentClient, AgentError},
-    tools::Tool,
+    agent::{AgentClient, AgentError, Content, Part},
+    tools::{FunctionDeclaration, Tool},
 };
 
 static API_URL: &'static str = "https://generativelanguage.googleapis.com/v1beta/models/";
-static MODEL: &'static str = "gemini-2.0-flash";
+static MODEL: &'static str = "gemini-2.0-flash-001";
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -18,6 +17,7 @@ pub struct GeminiModel {
     api_key: String,
     reqwest: Arc<reqwest::Client>,
     conversation: Arc<Mutex<ConversationHistory>>,
+    tools: Arc<Mutex<GeminiTool>>,
 }
 
 impl GeminiModel {
@@ -27,44 +27,28 @@ impl GeminiModel {
                 r#"
         You are an expert LLM Agent named VOO, with access to a variety of tools.
         You have access to various tools, and can use them to help you answer questions.
-        When you are asked a normal question, answer normally, but if you need to use a tool, use the following format:
-        {
-            "name": "tool_name",           
-            "input": <input schema> include the inner object, for example:
-            {
-                "path": "path/to/file.txt"
-            }
-        }
-
-        The input schema is the input schema for the tool you are using, basically in JSON format.
-
-        **VERY IMPORTANT**
-        > Don't say anything else, just the JSON because the agent will use this to parse the response.
-        > When showing the output of a tool, show the output and then show the user what they want in a list format, for example:
-        > - Item 1
-        > - Item 2
-        > - Item 3
-
-        **Current Tools Available:**
-        read_file, list_files
         "#,
             )],
             "model",
         );
 
-        let conversation_history = ConversationHistory::new(vec![initial_prompt], vec![]);
+        let conversation_history = ConversationHistory::new(vec![initial_prompt]);
+        let tools = Arc::new(Mutex::new(GeminiTool {
+            function_declarations: vec![],
+        }));
 
         Self {
             api_key,
             conversation: Arc::new(Mutex::new(conversation_history)),
             reqwest: Arc::new(reqwest::Client::new()),
+            tools,
         }
     }
 }
 
 #[async_trait]
 impl AgentClient for GeminiModel {
-    async fn ask(&self, prompt: &str) -> Result<Vec<String>, AgentError> {
+    async fn ask(&self, prompt: &str) -> Result<Vec<Content>, AgentError> {
         let api_key = &self.api_key;
         let url = format!("{}{}:generateContent?key={}", API_URL, MODEL, api_key);
 
@@ -73,9 +57,11 @@ impl AgentClient for GeminiModel {
             self.conversation.lock().await.contents.push(content);
         }
 
+        let tools = self.tools.lock().await.clone();
         let history = self.conversation.lock().await.clone();
         let contents = history.contents;
-        let prompt = Prompt::new(contents);
+
+        let prompt = Prompt::new(contents, tools);
 
         let response = self
             .reqwest
@@ -85,39 +71,57 @@ impl AgentClient for GeminiModel {
             .await
             .map_err(|e| AgentError::AgentError(Some(e.to_string())))?;
 
-        let response_json = response
-            .json::<GeminiResponse>()
+        let text = response
+            .text()
             .await
             .map_err(|e| AgentError::AgentError(Some(e.to_string())))?;
 
-        let texts = response_json
+        let response_json = serde_json::from_str::<GeminiResponse>(&text)
+            .map_err(|e| AgentError::AgentError(Some(e.to_string())))?;
+
+        let contents = response_json
             .candidates
             .iter()
-            .map(|candidate| candidate.content.clone().parts)
-            .map(|parts| parts.iter().map(|part| part.text.clone()).collect())
+            .map(|candidate| candidate.content.clone())
+            .collect::<Vec<Content>>();
+
+        let parts = contents
+            .iter()
+            .map(|content| content.parts.clone())
+            .flatten()
+            .collect::<Vec<Part>>();
+
+        let texts = parts
+            .iter()
+            .map(|part| part.text.clone().unwrap_or_default())
             .collect::<Vec<String>>();
 
-        for response in texts.iter() {
-            let content = Content::new(vec![Part::new(&response)], "model");
-            self.conversation.lock().await.contents.push(content);
+        if texts.is_empty() {
+            return Err(AgentError::AgentError(Some(
+                "No response from Gemini".to_string(),
+            )));
         }
 
-        Ok(texts)
+        for response in texts.iter() {
+            if response.is_empty() {
+                continue;
+            }
+
+            let response = format!(r##"{}"##, response);
+            _ = self.add_system_prompt(&response).await;
+        }
+
+        Ok(contents)
     }
 
     async fn add_tool(&self, tool: Arc<dyn Tool>) -> Result<(), AgentError> {
-        let tool_info = format!(
-            r#"Always follow the input schema!
-            Always include your response using the input schema provided and nothing else.
-            If a user ask about the tool, just respond normally.
-            {}
-            "#,
-            tool.as_ref()
-        );
-        let gemini_tool = GeminiTool::new(tool, tool_info);
-
+        let tool_definition = tool.tool_definition();
         {
-            self.conversation.lock().await.tools.push(gemini_tool);
+            self.tools
+                .lock()
+                .await
+                .function_declarations
+                .push(tool_definition.clone());
         }
 
         Ok(())
@@ -140,11 +144,15 @@ impl AgentClient for GeminiModel {
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Prompt {
     contents: Vec<Content>,
+    tools: Vec<GeminiTool>,
 }
 
 impl Prompt {
-    pub fn new(contents: Vec<Content>) -> Self {
-        Self { contents }
+    pub fn new(contents: Vec<Content>, tools: GeminiTool) -> Self {
+        Self {
+            contents,
+            tools: vec![tools],
+        }
     }
 }
 
@@ -168,42 +176,11 @@ pub struct Candidate {
 #[serde(rename_all = "camelCase")]
 pub struct ConversationHistory {
     pub contents: Vec<Content>,
-    pub tools: Vec<GeminiTool>,
 }
 
 impl ConversationHistory {
-    pub fn new(contents: Vec<Content>, tools: Vec<GeminiTool>) -> Self {
-        Self { contents, tools }
-    }
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Content {
-    pub parts: Vec<Part>,
-    pub role: String,
-}
-
-impl Content {
-    pub fn new(parts: Vec<Part>, role: &str) -> Self {
-        Self {
-            parts,
-            role: role.to_string(),
-        }
-    }
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Part {
-    pub text: String,
-}
-
-impl Part {
-    pub fn new(text: &str) -> Self {
-        Self {
-            text: text.to_string(),
-        }
+    pub fn new(contents: Vec<Content>) -> Self {
+        Self { contents }
     }
 }
 
@@ -234,54 +211,15 @@ pub struct CandidatesTokensDetail {
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiTool {
-    pub function_declarations: Vec<FunctionDeclaration>,
+    pub function_declarations: FunctionDeclaration,
 }
 
 impl GeminiTool {
-    pub fn new(tool: Arc<dyn Tool>, info: String) -> Self {
-        let function_declarations = vec![FunctionDeclaration {
-            name: tool.name().to_string(),
-            description: tool.description().to_string(),
-            parameters: Parameters {
-                type_field: "object".to_string(),
-                properties: json!([info]),
-                required: vec![],
-            },
-        }];
+    pub fn new(tool: Arc<dyn Tool>) -> Self {
+        let function_declarations = vec![tool.tool_definition().clone()];
 
         Self {
             function_declarations,
         }
     }
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FunctionDeclaration {
-    pub name: String,
-    pub description: String,
-    pub parameters: Parameters,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Parameters {
-    #[serde(rename = "type")]
-    pub type_field: String,
-    pub properties: Value,
-    pub required: Vec<String>,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Properties {
-    pub location: Location,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Location {
-    #[serde(rename = "type")]
-    pub type_field: String,
-    pub description: String,
 }

@@ -6,13 +6,15 @@ use std::{
 };
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::sync::Mutex;
 
 use super::tools::Tool;
 
 #[async_trait]
 pub trait AgentClient: Debug + Send + Sync + 'static {
-    async fn ask(&self, prompt: &str) -> Result<Vec<String>, AgentError>;
+    async fn ask(&self, prompt: &str) -> Result<Vec<Content>, AgentError>;
     async fn add_tool(&self, tool: Arc<dyn Tool>) -> Result<(), AgentError>;
     async fn add_system_prompt(&self, prompt: &str) -> Result<(), AgentError>;
 }
@@ -37,13 +39,18 @@ impl Agent {
         }
     }
 
-    pub fn add_tool(&self, tool: Arc<dyn Tool>) -> Result<(), AgentError> {
+    pub async fn add_tool(&self, tool: Arc<dyn Tool>) -> Result<(), AgentError> {
         self.tools
-            .try_lock()
-            .unwrap()
-            .insert(tool.name().to_string(), tool);
+            .lock()
+            .await
+            .insert(tool.name().to_string(), tool.clone());
+        self.client.add_tool(tool).await?;
 
         Ok(())
+    }
+
+    pub fn tools(&self) -> Arc<Mutex<HashMap<String, Arc<dyn Tool>>>> {
+        self.tools.clone()
     }
 }
 
@@ -76,10 +83,6 @@ impl Agent {
     pub fn reader(&self) -> &Arc<dyn InputReader> {
         &self.reader
     }
-
-    pub fn tools(&self) -> &Arc<Mutex<HashMap<String, Arc<dyn Tool>>>> {
-        &self.tools
-    }
 }
 
 #[derive(Debug)]
@@ -90,7 +93,7 @@ impl InputReader for TerminalInputReader {
         let mut input = String::new();
 
         std::io::stdout()
-            .write_all("\x1b[32mYOU: \x1b[0m".as_bytes())
+            .write_all("\x1b[38;5;5mYOU: \x1b[0m".as_bytes())
             .map_err(|e| AgentError::UserInputError(Some(e.to_string())))?;
 
         std::io::stdout().flush().map_err(|e| {
@@ -118,8 +121,8 @@ mod tests {
 
     #[async_trait]
     impl AgentClient for MockAgentClient {
-        async fn ask(&self, prompt: &str) -> Result<Vec<String>, AgentError> {
-            Ok(vec![prompt.to_string()])
+        async fn ask(&self, _prompt: &str) -> Result<Vec<Content>, AgentError> {
+            Ok(vec![Content::default()])
         }
 
         async fn add_tool(&self, _tool: Arc<dyn Tool>) -> Result<(), AgentError> {
@@ -150,4 +153,44 @@ mod tests {
         let result = agent.reader().read();
         assert_eq!(result.unwrap(), input);
     }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Content {
+    pub parts: Vec<Part>,
+    pub role: String,
+}
+
+impl Content {
+    pub fn new(parts: Vec<Part>, role: &str) -> Self {
+        Self {
+            parts,
+            role: role.to_string(),
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Part {
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub function_call: Option<FunctionCall>,
+}
+
+impl Part {
+    pub fn new(text: &str) -> Self {
+        Self {
+            text: Some(text.to_string()),
+            function_call: None,
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FunctionCall {
+    pub name: String,
+    pub args: Value,
 }
