@@ -12,6 +12,8 @@ use tokio::sync::Mutex;
 use tracing::{error, info};
 use tracing_subscriber::{Layer, layer::SubscriberExt};
 
+const MAX_RETRIES: usize = 3;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
@@ -47,11 +49,10 @@ async fn main() -> anyhow::Result<()> {
 
     println!("Chat with VOO (use 'ctrl-c' to quit)\n");
     let mut is_retry = false;
-    let max_retry = 3;
     let mut retry_attempt = 0;
 
     loop {
-        if retry_attempt >= max_retry {
+        if retry_attempt >= MAX_RETRIES {
             is_retry = false;
             retry_attempt = 0;
         }
@@ -75,6 +76,7 @@ async fn main() -> anyhow::Result<()> {
 
         if is_retry {
             info!("\x1b[33mRetrying...\x1b[0m");
+            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
         }
 
         let response = agent.client().ask(&input).await;
@@ -102,7 +104,7 @@ async fn main() -> anyhow::Result<()> {
                                     break outputs;
                                 }
                                 Err(e) => {
-                                    error!("\x1b[41moxi>\x1b[0m {}", e);
+                                    error!("\x1b[41mvoo>\x1b[0m {}", e);
                                     let err = format!("Error performing function call: {}", e);
                                     _ = agent.client().add_system_prompt(&err).await;
                                     is_retry = true;
@@ -120,7 +122,7 @@ async fn main() -> anyhow::Result<()> {
                             let tool_use_response = agent.client().ask(&prompt).await;
 
                             if let Err(e) = tool_use_response {
-                                error!("\x1b[41moxi>\x1b[0m {}", e);
+                                error!("\x1b[41mvoo>\x1b[0m {}", e);
                                 _ = agent.client().add_system_prompt(&e.to_string()).await;
                                 continue;
                             }
@@ -138,12 +140,12 @@ async fn main() -> anyhow::Result<()> {
             }
             Err(AgentError::ExpiredApiKey) => {
                 error!(
-                    "\x1b[41moxi>\x1b[0m API key expired. Please update the API key in the .env file."
+                    "\x1b[41mvoo>\x1b[0m API key expired. Please update the API key in the .env file."
                 );
-                break;
+                is_retry = true;
             }
             Err(e) => {
-                error!("\x1b[41moxi>\x1b[0m {}", e);
+                error!("\x1b[41mvoo>\x1b[0m {}", e);
                 _ = agent.client().add_system_prompt(&e.to_string()).await;
                 is_retry = true;
             }
@@ -157,12 +159,12 @@ async fn print_response(agent: &Agent, parts: &[Part]) {
     for part in parts {
         let text = part.text.as_ref();
         if text.is_none() {
-            error!("\x1b[41moxi>\x1b[0m Error: empty response from simple prompt");
+            error!("\x1b[41mvoo>\x1b[0m Error: empty response from simple prompt");
             continue;
         }
 
         if let Some(text) = text {
-            println!("\x1b[32moxi>\x1b[0m {}", text);
+            println!("\x1b[32mvoo>\x1b[0m {}", text);
             _ = agent.client().add_system_prompt(&text).await;
         }
     }
