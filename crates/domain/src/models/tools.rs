@@ -29,7 +29,6 @@ pub struct ToolNameInput {
 #[async_trait]
 pub trait Tool: Display + Debug + Send + Sync {
     async fn exec(&self, input: Value) -> Result<String, ToolError>;
-    fn parse_input(&self, input: String) -> Result<(), ToolError>;
     fn name(&self) -> &str;
     fn description(&self) -> &str;
     fn tool_definition(&self) -> &ToolDefinition;

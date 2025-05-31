@@ -86,13 +86,6 @@ impl Tool for ReadFileTool {
         Ok(content)
     }
 
-    fn parse_input(&self, input: String) -> Result<(), ToolError> {
-        let _ = serde_json::from_str::<ReadFileInput>(&input)
-            .map_err(|e| ToolError::ToolError(e.to_string()))?;
-
-        Ok(())
-    }
-
     fn name(&self) -> &str {
         &self.name
     }
