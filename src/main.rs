@@ -110,23 +110,10 @@ async fn main() -> anyhow::Result<()> {
                                 continue;
                             }
 
-                            let prompt = format!("{}\n", output);
-                            let tool_use_response = agent.client().ask(&prompt).await;
-
-                            if let Err(e) = tool_use_response {
-                                error!("\x1b[41mvoo>\x1b[0m {}", e);
-                                _ = agent
-                                    .client()
-                                    .add_system_prompt(&e.to_string(), AgentRole::User)
-                                    .await;
-                                continue 'main;
-                            }
-
-                            if let Ok(tool_response) = tool_use_response {
-                                for content in tool_response {
-                                    print_response(&agent, &content.parts).await;
-                                }
-                            }
+                            _ = agent
+                                .client()
+                                .add_system_prompt(&output, AgentRole::User)
+                                .await;
                         }
 
                         if !tool_use.is_empty() {
