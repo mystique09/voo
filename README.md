@@ -38,8 +38,7 @@ YOU: search for main.rs file and summarize its content
 list_files> {"path":"f:/Dev/voo"}
 list_files> {"path":"f:/Dev/voo/src/"}
 read_file> {"path":"f:/Dev/voo/src/main.rs"}
-voo> ```text
-main.rs Summary:
+voo> main.rs Summary:
 
 The `main.rs` file is the entry point of the VOO application, a chatbot powered by the Gemini language model.
 
