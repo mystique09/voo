@@ -12,11 +12,26 @@ use tokio::sync::Mutex;
 
 use super::tools::Tool;
 
+#[derive(Debug)]
+pub enum AgentRole {
+    User,
+    Model,
+}
+
+impl Display for AgentRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AgentRole::User => write!(f, "user"),
+            AgentRole::Model => write!(f, "model"),
+        }
+    }
+}
+
 #[async_trait]
 pub trait AgentClient: Debug + Send + Sync + 'static {
     async fn ask(&self, prompt: &str) -> Result<Vec<Content>, AgentError>;
     async fn add_tool(&self, tool: Arc<dyn Tool>) -> Result<(), AgentError>;
-    async fn add_system_prompt(&self, prompt: &str) -> Result<(), AgentError>;
+    async fn add_system_prompt(&self, prompt: &str, role: AgentRole) -> Result<(), AgentError>;
 }
 
 pub trait InputReader: Debug + Send + Sync + 'static {
@@ -131,7 +146,11 @@ mod tests {
             Ok(())
         }
 
-        async fn add_system_prompt(&self, _prompt: &str) -> Result<(), AgentError> {
+        async fn add_system_prompt(
+            &self,
+            _prompt: &str,
+            _role: AgentRole,
+        ) -> Result<(), AgentError> {
             Ok(())
         }
     }

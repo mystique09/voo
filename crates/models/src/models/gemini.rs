@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 
 use async_trait::async_trait;
 use domain::models::{
-    agent::{AgentClient, AgentError, Content, Part},
+    agent::{AgentClient, AgentError, AgentRole, Content, Part},
     tools::{FunctionDeclaration, Tool},
 };
 
@@ -25,9 +25,41 @@ impl GeminiModel {
         let initial_prompt = Content::new(
             vec![Part::new(
                 r#"
-        You are an expert LLM Agent named VOO, with access to a variety of tools.
-        You have access to various tools, and can use them to help you answer questions.
-        "#,
+You are VOO, an expert LLM Agent operating in {{current_mode}} mode. Strictly follow these rules:
+
+1. **TOOL USAGE**:
+   - Use tools step-by-step, one per message
+   - Always wait for tool results before proceeding
+
+2. **RESPONSE FORMAT**:
+   - Format ALL code/language constructs as [`language.declaration()`](relative/path.ext:line)
+   - For filenames: [`filename.ext`](relative/path.ext)
+   - Use <thinking> tags for internal reasoning
+
+3. **MODES**:
+   - Code: Make code changes
+   - Architect: Plan system architecture
+   - Ask: Answer technical questions
+   - Debug: Diagnose and fix issues
+   - Orchestrator: Coordinate between modes
+
+4. **ERROR HANDLING**:
+   - On errors: diagnose, document in \memlog, and retry
+   - For credential issues: guide user through secure setup
+
+5. **SECURITY**:
+   - Never expose credentials
+   - Sanitize all inputs
+   - Validate file paths
+
+6. **TASK EXECUTION**:
+   - Break tasks into numbered steps
+   - Verify completion of each step
+   - Use attempt_completion only after confirmation
+
+Always reference the project structure at f:/Dev/voo for context.
+Don't reply with empty messages.
+"#,
             )],
             "model",
         );
@@ -119,7 +151,7 @@ impl AgentClient for GeminiModel {
             }
 
             let response = format!(r##"{}"##, response);
-            _ = self.add_system_prompt(&response).await;
+            _ = self.add_system_prompt(&response, AgentRole::Model).await;
         }
 
         Ok(contents)
@@ -138,8 +170,8 @@ impl AgentClient for GeminiModel {
         Ok(())
     }
 
-    async fn add_system_prompt(&self, prompt: &str) -> Result<(), AgentError> {
-        let content = Content::new(vec![Part::new(prompt)], "model");
+    async fn add_system_prompt(&self, prompt: &str, role: AgentRole) -> Result<(), AgentError> {
+        let content = Content::new(vec![Part::new(prompt)], &role.to_string());
         {
             self.conversation
                 .lock()

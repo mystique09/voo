@@ -1,7 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use domain::models::{
-    agent::{Agent, AgentError, FunctionCall, Part},
+    agent::{Agent, AgentError, AgentRole, FunctionCall, Part},
     tools::Tool,
 };
 use models::{
@@ -11,8 +11,6 @@ use models::{
 use tokio::sync::Mutex;
 use tracing::{error, info};
 use tracing_subscriber::{Layer, layer::SubscriberExt};
-
-const MAX_RETRIES: usize = 3;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -48,16 +46,11 @@ async fn main() -> anyhow::Result<()> {
     let _crate_version = env!("CARGO_PKG_VERSION");
 
     println!("Chat with VOO (use 'ctrl-c' to quit)\n");
-    let mut is_retry = false;
-    let mut retry_attempt = 0;
 
-    loop {
-        if retry_attempt >= MAX_RETRIES {
-            is_retry = false;
-            retry_attempt = 0;
-        }
+    let mut should_read_input = true;
 
-        let input = if !is_retry {
+    'main: loop {
+        let input = if should_read_input {
             let input = agent
                 .reader()
                 .read()
@@ -65,8 +58,7 @@ async fn main() -> anyhow::Result<()> {
 
             input
         } else {
-            retry_attempt += 1;
-            "Retry.".to_string()
+            "".to_string()
         };
 
         if input.starts_with("exit") {
@@ -74,9 +66,8 @@ async fn main() -> anyhow::Result<()> {
             break;
         }
 
-        if is_retry {
-            info!("\x1b[33mRetrying...\x1b[0m");
-            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+        if !should_read_input {
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
         let response = agent.client().ask(&input).await;
@@ -84,8 +75,6 @@ async fn main() -> anyhow::Result<()> {
 
         match response {
             Ok(responses) => {
-                is_retry = false;
-
                 for response in responses {
                     let function_calls = response
                         .parts
@@ -106,25 +95,31 @@ async fn main() -> anyhow::Result<()> {
                                 Err(e) => {
                                     error!("\x1b[41mvoo>\x1b[0m {}", e);
                                     let err = format!("Error performing function call: {}", e);
-                                    _ = agent.client().add_system_prompt(&err).await;
-                                    is_retry = true;
-                                    continue;
+                                    _ = agent
+                                        .client()
+                                        .add_system_prompt(&err, AgentRole::User)
+                                        .await;
+                                    should_read_input = false;
+                                    continue 'main;
                                 }
                             }
                         };
 
-                        for output in tool_use {
+                        for output in &tool_use {
                             if output.is_empty() {
                                 continue;
                             }
 
-                            let prompt = format!("Tool use output:\n\n{}\n", output);
+                            let prompt = format!("{}\n", output);
                             let tool_use_response = agent.client().ask(&prompt).await;
 
                             if let Err(e) = tool_use_response {
                                 error!("\x1b[41mvoo>\x1b[0m {}", e);
-                                _ = agent.client().add_system_prompt(&e.to_string()).await;
-                                continue;
+                                _ = agent
+                                    .client()
+                                    .add_system_prompt(&e.to_string(), AgentRole::User)
+                                    .await;
+                                continue 'main;
                             }
 
                             if let Ok(tool_response) = tool_use_response {
@@ -133,8 +128,14 @@ async fn main() -> anyhow::Result<()> {
                                 }
                             }
                         }
+
+                        if !tool_use.is_empty() {
+                            should_read_input = false;
+                            continue 'main;
+                        }
                     } else {
                         print_response(&agent, &response.parts).await;
+                        should_read_input = true;
                     }
                 }
             }
@@ -142,12 +143,13 @@ async fn main() -> anyhow::Result<()> {
                 error!(
                     "\x1b[41mvoo>\x1b[0m API key expired. Please update the API key in the .env file."
                 );
-                is_retry = true;
             }
             Err(e) => {
                 error!("\x1b[41mvoo>\x1b[0m {}", e);
-                _ = agent.client().add_system_prompt(&e.to_string()).await;
-                is_retry = true;
+                _ = agent
+                    .client()
+                    .add_system_prompt(&e.to_string(), AgentRole::User)
+                    .await;
             }
         }
     }
@@ -159,13 +161,15 @@ async fn print_response(agent: &Agent, parts: &[Part]) {
     for part in parts {
         let text = part.text.as_ref();
         if text.is_none() {
-            error!("\x1b[41mvoo>\x1b[0m Error: empty response from simple prompt");
             continue;
         }
 
         if let Some(text) = text {
             println!("\x1b[32mvoo>\x1b[0m {}", text);
-            _ = agent.client().add_system_prompt(&text).await;
+            _ = agent
+                .client()
+                .add_system_prompt(&text, AgentRole::User)
+                .await;
         }
     }
 }
